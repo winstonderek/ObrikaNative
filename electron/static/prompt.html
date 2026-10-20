@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>Obrika</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: 20px 22px 16px;
+    }
+    #message {
+      font-size: 14px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 72px;
+      overflow: auto;
+      margin-bottom: 14px;
+    }
+    input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+    .actions {
+      margin-top: auto;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 16px;
+    }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    #cancel { background: #e2e8f0; color: #0f172a; }
+    #ok { background: #6366f1; color: #fff; }
+    @media (prefers-color-scheme: dark) {
+      html, body { background: #0f172a; color: #f8fafc; }
+      input { background: #1e293b; color: #f8fafc; border-color: #334155; }
+      #cancel { background: #334155; color: #f8fafc; }
+    }
+  </style>
+</head>
+<body>
+  <p id="message"></p>
+  <input id="value" type="text" spellcheck="false" />
+  <div class="actions">
+    <button type="button" id="cancel">Cancel</button>
+    <button type="button" id="ok">OK</button>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    document.getElementById('message').textContent = params.get('message') || '';
+    const input = document.getElementById('value');
+    input.value = params.get('default') || '';
+    input.focus();
+    input.select();
+
+    const api = window.obrikaPrompt;
+    function submit() { api && api.submit(input.value); }
+    function cancel() { api && api.cancel(); }
+
+    document.getElementById('ok').addEventListener('click', submit);
+    document.getElementById('cancel').addEventListener('click', cancel);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') submit();
+      if (event.key === 'Escape') cancel();
+    });
+  </script>
+</body>
+</html>

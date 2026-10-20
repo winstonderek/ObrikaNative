@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>Connection Error — Obrika</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 480px;
+    }
+    .icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+    .detail {
+      display: none;
+      font-size: 0.8rem;
+      color: #64748b;
+      background: rgba(255,255,255,0.05);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+      word-break: break-all;
+      text-align: left;
+    }
+    button {
+      background: #6366f1;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #4f46e5; }
+    @media (prefers-color-scheme: light) {
+      html, body { background: #f8fafc; color: #0f172a; }
+      p { color: #64748b; }
+      .detail { background: #f1f5f9; color: #475569; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon" aria-hidden="true">⚠️</div>
+    <h1>Unable to connect</h1>
+    <p id="message">Obrika could not reach the server. Check your internet connection and try again.</p>
+    <pre class="detail" id="detail"></pre>
+    <button id="retry">Try again</button>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const detail = params.get('detail');
+    const url = params.get('url');
+
+    const messages = {
+      '-105': 'DNS lookup failed. The server address could not be found.',
+      '-106': 'No internet connection detected.',
+      '-107': 'The connection was refused by the server.',
+      '-109': 'The server address is unreachable.',
+      '-118': 'The connection timed out. Please try again.',
+      '-200': 'There is a problem with the security certificate.',
+      '-300': 'The server redirected too many times.',
+      '-501': 'The connection was blocked for security reasons.',
+    };
+
+    if (code && messages[code]) {
+      document.getElementById('message').textContent = messages[code];
+    }
+
+    if (detail) {
+      const el = document.getElementById('detail');
+      el.style.display = 'block';
+      el.textContent = 'Error ' + code + ': ' + detail + (url ? '\\nURL: ' + url : '');
+    }
+
+    document.getElementById('retry').addEventListener('click', () => {
+      window.location.href = 'https://obrika.dereksolutions.com';
+    });
+  </script>
+</body>
+</html>

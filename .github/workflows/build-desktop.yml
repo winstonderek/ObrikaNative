@@ -1,0 +1,288 @@
+name: Build Obrika Desktop
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: obrika-macos
+            command: npm run make
+          - artifact: obrika-macos-intel
+            command: npm run make:mac:intel
+    defaults:
+      run:
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Verify tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag v$TAG does not match electron/package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint (TypeScript)
+        run: npm run lint
+
+      - name: Import Apple signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "APPLE_CERTIFICATE is not set; macOS signing will be skipped."
+            exit 0
+          fi
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | tr -d '"')
+          rm -f "$CERTIFICATE_PATH"
+
+      - name: Package macOS
+        run: ${{ matrix.command }}
+        env:
+          APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: electron/out/make
+
+  build-windows:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Verify tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag v$TAG does not match electron/package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint (TypeScript)
+        run: npm run lint
+
+      - name: Decode Windows signing certificate
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "WINDOWS_CERTIFICATE is not set; Windows signing will be skipped."
+            exit 0
+          }
+          $path = Join-Path $env:RUNNER_TEMP "windows-cert.pfx"
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          [IO.File]::WriteAllBytes($path, $bytes)
+          Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERTIFICATE_FILE=$path"
+
+      - name: Package Windows
+        run: npm run make:win
+        env:
+          SQUIRREL_ICON_URL: ${{ secrets.SQUIRREL_ICON_URL }}
+          WINDOWS_CERTIFICATE_FILE: ${{ env.WINDOWS_CERTIFICATE_FILE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obrika-windows
+          path: electron/out/make
+
+  build-windows-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    environment: signing
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Verify tag matches package.json
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag v$TAG does not match electron/package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint (TypeScript)
+        run: npm run lint
+
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare Azure Artifact Signing
+        shell: pwsh
+        env:
+          AZURE_ENDPOINT: ${{ secrets.AZURE_CODESIGNING_ENDPOINT }}
+          AZURE_ACCOUNT_NAME: ${{ secrets.AZURE_CODESIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in 'AZURE_ENDPOINT','AZURE_ACCOUNT_NAME','AZURE_CERTIFICATE_PROFILE_NAME') {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
+              throw "$name is empty. Add it as a secret on the GitHub environment 'signing'."
+            }
+          }
+
+          $stage = 'C:\azsign'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $version = '1.0.128'
+          $nupkg = Join-Path $stage 'client.nupkg'
+          $zip = Join-Path $stage 'client.zip'
+          $extract = Join-Path $stage 'client'
+          Write-Host "Downloading Microsoft.ArtifactSigning.Client $version"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client/$version" -OutFile $nupkg
+          Copy-Item $nupkg $zip -Force
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+
+          $dlib = Join-Path $extract 'bin\x64\Azure.CodeSigning.Dlib.dll'
+          if (-not (Test-Path $dlib)) { throw "Azure.CodeSigning.Dlib.dll not found at $dlib" }
+
+          $signtool = Get-ChildItem -Path 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe (x64) was not found in the Windows SDK' }
+
+          $metadataPath = Join-Path $stage 'metadata.json'
+          @{
+            Endpoint = $env:AZURE_ENDPOINT
+            CodeSigningAccountName = $env:AZURE_ACCOUNT_NAME
+            CertificateProfileName = $env:AZURE_CERTIFICATE_PROFILE_NAME
+          } | ConvertTo-Json -Compress | Set-Content -Path $metadataPath -Encoding ascii
+
+          az account get-access-token --scope https://codesigning.azure.net/.default --output none
+          if ($LASTEXITCODE -ne 0) { throw 'Could not get an Artifact Signing token. Check the federated credential and the Certificate Profile Signer role.' }
+
+          "AZURE_CODE_SIGNING_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AZURE_METADATA_JSON=$metadataPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SIGNTOOL_PATH=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Package Windows
+        run: npm run make:win
+        env:
+          SQUIRREL_ICON_URL: ${{ secrets.SQUIRREL_ICON_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Windows signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-ChildItem -Path out\make -Recurse -Filter 'Obrika-Setup.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'Obrika-Setup.exe was not produced' }
+          $signature = Get-AuthenticodeSignature $setup.FullName
+          if ($signature.Status -ne 'Valid') {
+            throw "Obrika-Setup.exe signature status is $($signature.Status). $($signature.StatusMessage)"
+          }
+          Write-Host "Obrika-Setup.exe signed by $($signature.SignerCertificate.Subject)"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obrika-windows
+          path: electron/out/make
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-macos, build-windows-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/**/*.dmg
+            release-assets/**/*.zip
+            release-assets/**/*.exe
+            release-assets/**/*.nupkg
+            release-assets/**/*.yml
+            release-assets/**/RELEASES

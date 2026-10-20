@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'unsafe-inline'" />
+  <title>Share screen</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 22px 12px;
+    }
+    h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      margin-top: 4px;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .notice {
+      display: none;
+      margin: 0 22px 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(250, 204, 21, 0.12);
+      color: #fde68a;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .notice.visible { display: block; }
+    .notice button {
+      margin-left: 8px;
+      border: 0;
+      background: none;
+      color: #facc15;
+      font-weight: 650;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .list {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 4px 22px 16px;
+    }
+    .section {
+      margin-bottom: 18px;
+    }
+    .section h2 {
+      margin-bottom: 10px;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
+    }
+    .tile {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: #1e293b;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .tile:hover, .tile:focus-visible {
+      outline: none;
+      border-color: #1c45fa;
+      box-shadow: 0 0 0 2px rgba(28, 69, 250, 0.35);
+    }
+    .thumb {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      background: #020617;
+    }
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+    }
+    .icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      border-radius: 3px;
+    }
+    .name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    .empty {
+      padding: 48px 16px;
+      color: #94a3b8;
+      font-size: 14px;
+      text-align: center;
+    }
+    footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 12px 22px 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .cancel {
+      height: 38px;
+      padding: 0 16px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      background: transparent;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .cancel:hover { background: rgba(255, 255, 255, 0.06); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Share your screen</h1>
+      <p class="sub">Choose a screen or window to share in this call.</p>
+    </div>
+  </header>
+  <div id="notice" class="notice">
+    macOS needs Screen Recording permission for Obrika.
+    <button type="button" id="open-settings">Open Settings</button>
+  </div>
+  <div id="list" class="list">
+    <p class="empty">Looking for screens and windows…</p>
+  </div>
+  <footer>
+    <button type="button" class="cancel" id="cancel">Cancel</button>
+  </footer>
+  <script>
+    const picker = window.obrikaScreenPicker;
+    const list = document.getElementById('list');
+    const notice = document.getElementById('notice');
+    const cancel = document.getElementById('cancel');
+    const openSettings = document.getElementById('open-settings');
+
+    function escapeText(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+    }
+
+    function renderGroup(title, sources) {
+      if (!sources.length) return '';
+      const tiles = sources.map((source) => {
+        const icon = source.appIcon
+          ? `<img class="icon" alt="" src="${source.appIcon}" />`
+          : '';
+        return `
+          <button type="button" class="tile" data-id="${escapeText(source.id)}">
+            <img class="thumb" alt="" src="${source.thumbnail}" />
+            <span class="meta">${icon}<span class="name">${escapeText(source.name)}</span></span>
+          </button>
+        `;
+      }).join('');
+      return `<section class="section"><h2>${title}</h2><div class="grid">${tiles}</div></section>`;
+    }
+
+    if (!picker) {
+      list.innerHTML = '<p class="empty">Screen sharing is unavailable in this build.</p>';
+    } else {
+      picker.onSources((payload) => {
+        const sources = payload && Array.isArray(payload.sources) ? payload.sources : [];
+        const screens = sources.filter((source) => source.displayType === 'screen');
+        const windows = sources.filter((source) => source.displayType !== 'screen');
+        if (payload && payload.screenAccess && payload.screenAccess !== 'granted') {
+          notice.classList.add('visible');
+        } else {
+          notice.classList.remove('visible');
+        }
+        if (!sources.length) {
+          list.innerHTML = '<p class="empty">No screens or windows are available to share.</p>';
+          return;
+        }
+        list.innerHTML = renderGroup('Screens', screens) + renderGroup('Windows', windows);
+      });
+    }
+
+    list.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-id]');
+      if (!button || !picker) return;
+      picker.select(button.getAttribute('data-id'));
+    });
+
+    cancel.addEventListener('click', () => picker && picker.cancel());
+    openSettings.addEventListener('click', () => picker && picker.openScreenSettings());
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && picker) picker.cancel();
+    });
+  </script>
+</body>
+</html>

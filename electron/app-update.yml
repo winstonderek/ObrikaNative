@@ -1,0 +1,4 @@
+provider: github
+owner: winstonderek
+repo: ObrikaNative
+updaterCacheDirName: obrika-updater
