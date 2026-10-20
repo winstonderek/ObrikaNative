@@ -90,13 +90,13 @@ Examples (prepared for future use):
 
 ## Icons
 
-Placeholder icons are generated automatically on `npm install`. **Replace before public release:**
+The app icons are the Obrika mark only (no wordmark), generated from the brand image:
 
-- `assets/icon.png` — 512×512 or 1024×1024 PNG
+- `assets/icon.png` — 1024×1024 PNG
 - `assets/icon.ico` — Windows
 - `assets/icon.icns` — macOS
 
-Generate proper platform icons from your PNG using [icon-gen](https://www.npmjs.com/package/icon-gen) or similar tools.
+The loading screen uses the full logo, wordmark included, at `static/obrika-logo.png`.
 
 ## Environment variables
 

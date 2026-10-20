@@ -181,10 +181,72 @@ function installMacToolbarInset(): void {
       const tag = node.tagName;
       return tag === 'STYLE' || (tag === 'LINK' && node.rel === 'stylesheet');
     };
+    const toolbarPx = ${height};
+    /**
+     * Slides, sheets and dialogs are position:fixed (or sticky) against the
+     * viewport. Body padding does not move them, and many are not tagged with
+     * the Tailwind classes above (data-side variants, CSS modules). If their
+     * used top is the viewport edge, the toolbar covers the close control.
+     * Parents are adjusted before descendants so a panel moved below the bar
+     * does not also push controls that are fixed inside it.
+     */
+    const placeBelowToolbar = (el) => {
+      if (!el || el.nodeType !== 1 || el === document.body || el === document.documentElement) return;
+      let cs;
+      try { cs = getComputedStyle(el); } catch { return; }
+      if (cs.display === 'none' || cs.visibility === 'hidden') return;
+      const top = parseFloat(cs.top);
+      if (top !== 0) return;
+      if (cs.position === 'sticky') {
+        let parent = el.parentElement;
+        let portTop = 0;
+        const clips = (value) => value === 'auto' || value === 'scroll' || value === 'overlay' || value === 'hidden' || value === 'clip';
+        while (parent && parent !== document.body && parent !== document.documentElement) {
+          const pcs = getComputedStyle(parent);
+          // overflow:hidden is a sticky scrollport. The app bar lives in one
+          // that already starts below the toolbar because of body padding.
+          if (clips(pcs.overflowY) || clips(pcs.overflowX)) {
+            portTop = parent.getBoundingClientRect().top;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+        // Already clear of the toolbar: leave top:0 so the bar stays anchored.
+        if (portTop >= toolbarPx - 1) return;
+        el.style.setProperty('top', (toolbarPx - portTop) + 'px', 'important');
+        return;
+      }
+      if (cs.position !== 'fixed') return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      if (rect.top >= toolbarPx - 0.5) return;
+      el.style.setProperty('top', 'var(' + token + ')', 'important');
+      const bottom = parseFloat(cs.bottom);
+      const coversViewport = bottom === 0 || rect.height >= window.innerHeight - toolbarPx - 1;
+      if (!coversViewport) return;
+      el.style.setProperty('max-height', 'calc(100dvh - var(' + token + '))', 'important');
+      if (bottom === 0) el.style.setProperty('height', 'auto', 'important');
+    };
+    const placeTreeBelowToolbar = (root) => {
+      placeBelowToolbar(root);
+      if (root && root.querySelectorAll) root.querySelectorAll('*').forEach(placeBelowToolbar);
+    };
     const watch = () => {
       patchAll();
       patchInlineTree(document.documentElement);
       let pending = false;
+      let nudgeFrame = 0;
+      const nudgeRoots = new Set();
+      const scheduleNudge = (node) => {
+        if (node && node.nodeType === 1) nudgeRoots.add(node);
+        if (nudgeFrame) return;
+        nudgeFrame = requestAnimationFrame(() => {
+          nudgeFrame = 0;
+          const roots = Array.from(nudgeRoots);
+          nudgeRoots.clear();
+          for (const root of roots) placeTreeBelowToolbar(root);
+        });
+      };
       const schedulePatchAll = () => {
         if (pending) return;
         pending = true;
@@ -194,6 +256,7 @@ function installMacToolbarInset(): void {
         for (const mutation of mutations) {
           if (mutation.type === 'attributes') {
             patchInline(mutation.target);
+            scheduleNudge(mutation.target);
             continue;
           }
           const parent = mutation.target;
@@ -208,6 +271,7 @@ function installMacToolbarInset(): void {
               schedulePatchAll();
             }
             patchInlineTree(node);
+            scheduleNudge(node);
           }
         }
       });
@@ -216,12 +280,15 @@ function installMacToolbarInset(): void {
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['style'],
       });
       document.addEventListener('load', (event) => {
         if (isStyleNode(event.target)) schedulePatchAll();
       }, true);
-      window.addEventListener('load', schedulePatchAll, { once: true });
+      window.addEventListener('load', () => {
+        schedulePatchAll();
+        scheduleNudge(document.body);
+      }, { once: true });
+      scheduleNudge(document.body);
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch, { once: true });
     else watch();
